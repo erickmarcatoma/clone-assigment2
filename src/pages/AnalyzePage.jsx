@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react'
 import ReactMarkdown from 'react-markdown'
 import { categorizeMessage } from '../utils/llmHelper'
 import { calculateUrgency } from '../utils/urgencyScorer'
-import { getRecommendedAction } from '../utils/templates'
+import { getRecommendedAction, shouldEscalate } from '../utils/templates'
 
 function AnalyzePage() {
   const [message, setMessage] = useState('')
@@ -29,20 +29,29 @@ function AnalyzePage() {
     
     try {
       // Run categorization (LLM call)
-      const { category, reasoning } = await categorizeMessage(message)
+      const {
+        category,
+        urgency: modelUrgency,
+        confidence,
+        reasoning,
+        aiUnavailable
+      } = await categorizeMessage(message)
       
       // Calculate urgency (rule-based)
       const urgency = calculateUrgency(message)
       
       // Get recommended action (template-based)
-      const recommendedAction = getRecommendedAction(category)
+      const recommendedAction = getRecommendedAction(category, urgency)
       
       const analysisResult = {
         message,
         category,
         urgency,
+        modelUrgency,
         recommendedAction,
         reasoning,
+        confidence,
+        aiUnavailable,
         timestamp: new Date().toISOString()
       }
 
@@ -130,12 +139,31 @@ function AnalyzePage() {
             <h2 className="text-xl font-bold text-gray-900 mb-4">Analysis Results</h2>
             
             <div className="space-y-4">
+              {results.aiUnavailable && (
+                <div role="alert" className="bg-amber-50 border border-amber-300 text-amber-900 rounded-lg p-4 font-semibold">
+                  AI unavailable – review manually.
+                </div>
+              )}
+
+              {shouldEscalate(results.category, results.urgency) && (
+                <div role="alert" className="bg-red-50 border border-red-300 text-red-900 rounded-lg p-4 font-semibold">
+                  Escalation required: route this high-urgency message to the appropriate support team.
+                </div>
+              )}
+
               <div>
                 <div className="text-sm font-semibold text-gray-600 mb-1">Category</div>
                 <div className="inline-block bg-blue-100 text-blue-800 px-4 py-2 rounded-lg font-semibold">
                   {results.category}
                 </div>
               </div>
+
+              {!results.aiUnavailable && (
+                <div>
+                  <div className="text-sm font-semibold text-gray-600 mb-1">AI Confidence</div>
+                  <div className="text-gray-800">{Math.round(results.confidence * 100)}%</div>
+                </div>
+              )}
 
               <div>
                 <div className="text-sm font-semibold text-gray-600 mb-1">Urgency Level</div>
@@ -146,6 +174,11 @@ function AnalyzePage() {
                 }`}>
                   {results.urgency}
                 </div>
+                {!results.aiUnavailable && results.modelUrgency !== results.urgency && (
+                  <p className="text-sm text-gray-600 mt-1">
+                    The AI estimated {results.modelUrgency}; the topic-based rules set urgency to {results.urgency}.
+                  </p>
+                )}
               </div>
 
               <div>
